@@ -1,0 +1,2 @@
+D:\CodingProjects\CppProjects\VSProjects\TPMTest1\Debug\TPMTest1.exe
+D:\CodingProjects\CppProjects\VSProjects\TPMTest1\Debug\TPMTest1.pdb
