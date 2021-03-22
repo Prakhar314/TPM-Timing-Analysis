@@ -13,31 +13,54 @@ using namespace std;
 using namespace TpmCpp;
 
 Tpm2 tpm;
+void generate_ecdsa_key(){
+	TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
+	TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
+	  | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth, ByteVec(), TPMS_ECC_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_ECDSA(TPM_ALG_ID::SHA256), TPM_ECC_CURVE::NIST_P256, TPMS_NULL_KDF_SCHEME()), TPMS_ECC_POINT());
 
-ByteVec getBlobHash(string filename) {
-    //input as char vec
-    ifstream input(filename, ios::binary);
-    vector<char> blob(
-        (istreambuf_iterator<char>(input)),
-        (istreambuf_iterator<char>()));
-    input.close();
 
-    //make prefix
-    int si = blob.size();
-    stringstream ss;
-    ss << "blob " << si;
-    string prefix = ss.str();
+	ByteVec userAuth = { 1, 2, 3, 4 };
+    TPMS_SENSITIVE_CREATE sensCreate(userAuth, ByteVec());
 
-    //make byte vec from prefix char vec
-    ByteVec bytes(prefix.begin(), prefix.end());
-    bytes.push_back('\0');
-    bytes.insert(bytes.end(), blob.begin(), blob.end());
-    //cout << bytes << endl;
-    //get SHA1 hash
-    HashResponse h = tpm.Hash(bytes, TPM_ALG_ID::SHA1, TPM_RH_NULL);
-    return h.outHash;
+    // Create the key (no PCR-state captured)
+    auto newPrimary = tpm.CreatePrimary(TPM_RH::OWNER, sensCreate, templ, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>());
+
+    // if (!tpm._LastCommandSucceeded())
+    // {
+    //     // Some TPMs only allow primary keys of no lower than a particular strength.
+    //     _ASSERT(tpm._GetLastResponseCode() == TPM_RC::VALUE);
+    //     newPrimary = tpm.CreatePrimary(TPM_RH::OWNER, sensCreate, templ, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>());
+    // }
+
+    cout << "New ECDSA primary key" << endl << newPrimary.outPublic.ToString(false) << endl;
 }
+void generate_rsa_key() {
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
+        TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
+        | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth,
+        ByteVec(), TPMS_RSA_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA256), 1024, 65537), TPM2B_PUBLIC_KEY_RSA());
 
+    // Set the use-auth for the nex key. Note the second parameter is
+    // NULL because we are asking the TPM to create a new key.
+    ByteVec userAuth = { 1, 2, 3, 4 };
+    TPMS_SENSITIVE_CREATE sensCreate(userAuth, ByteVec());
+
+    // Create the key (no PCR-state captured)
+    auto newPrimary = tpm._AllowErrors()
+        .CreatePrimary(TPM_RH::OWNER, sensCreate, templ, ByteVec(), vector<TPMS_PCR_SELECTION>());
+    if (!tpm._LastCommandSucceeded())
+    {
+        // Some TPMs only allow primary keys of no lower than a particular strength.
+        _ASSERT(tpm._GetLastResponseCode() == TPM_RC::VALUE);
+        dynamic_cast<TPMS_RSA_PARMS*>(&*templ.parameters)->keyBits = 2048;
+        newPrimary = tpm.CreatePrimary(TPM_RH::OWNER, sensCreate, templ, ByteVec(), vector<TPMS_PCR_SELECTION>());
+    }
+
+    // Print out the public data for the new key. Note the parameter to
+    // ToString() "pretty-prints" the byte-arrays.
+    cout << "New RSA primary key" << endl << newPrimary.outPublic.ToString(false) << endl;
+    cout << "Returned by TPM " << newPrimary.name << endl;
+}
 int main(int argc, char* argv[])
 {
     TpmTcpDevice device;
@@ -54,8 +77,8 @@ int main(int argc, char* argv[])
 
     // Get blob hash
     //cout << argv[1] << endl;
-
-    cout << getBlobHash(argv[1]) << endl;
+    generate_ecdsa_key();
+    cout<<"\n";
     // And shut down the TPM
     tpm.Shutdown(TPM_SU::CLEAR);
     device.PowerOff();
