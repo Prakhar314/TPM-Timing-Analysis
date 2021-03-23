@@ -33,6 +33,14 @@ void generate_ecdsa_key(){
     // }
 
     cout << "New ECDSA primary key" << endl << newPrimary.outPublic.ToString(false) << endl;
+    TPM_HANDLE& signKey = newPrimary.handle;
+    signKey.SetAuth(userAuth);
+
+    TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, "abc");
+
+    auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
+    cout << "Data to be signed:" << dataToSign.digest << endl;
+    cout << "Signature:" << endl << sig->ToString(false) << endl;
 }
 void generate_rsa_key() {
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
@@ -60,6 +68,35 @@ void generate_rsa_key() {
     // ToString() "pretty-prints" the byte-arrays.
     cout << "New RSA primary key" << endl << newPrimary.outPublic.ToString(false) << endl;
     cout << "Returned by TPM " << newPrimary.name << endl;
+
+    TPM_HANDLE& signKey = newPrimary.handle;
+    signKey.SetAuth(userAuth);
+
+    TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, "abc");
+
+    auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
+    cout << "Data to be signed:" << dataToSign.digest << endl;
+    cout << "Signature:" << endl << sig->ToString(false) << endl;
+
+    // // We can put the primary key into NV with EvictControl
+    // TPM_HANDLE persistentHandle = TPM_HANDLE::Persistent(1000);
+
+    // // First delete anything that might already be there
+    // tpm._AllowErrors().EvictControl(TPM_RH::OWNER, persistentHandle, persistentHandle);
+
+    // // Make our primary persistent
+    // tpm.EvictControl(TPM_RH::OWNER, newPrimary.handle, persistentHandle);
+
+    // // Flush the old one
+    // tpm.FlushContext(newPrimary.handle);
+
+    // // ReadPublic of the new persistent one
+    // auto persistentPub = tpm.ReadPublic(persistentHandle);
+    // cout << "Public part of persistent primary" << endl << persistentPub.ToString(false);
+
+    // // And delete it
+    // tpm.EvictControl(TPM_RH::OWNER, persistentHandle, persistentHandle);
+
 }
 int main(int argc, char* argv[])
 {
