@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iterator>
 #include <vector>
+#include <chrono>
 #include "stdafx.h"
 #include "Tpm2.h"
 
@@ -13,13 +14,49 @@ using namespace std;
 using namespace TpmCpp;
 
 Tpm2 tpm;
-void generate_ecdsa_key(){
-	TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
-	TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
-	  | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth, ByteVec(), TPMS_ECC_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_ECDSA(TPM_ALG_ID::SHA256), TPM_ECC_CURVE::NIST_P256, TPMS_NULL_KDF_SCHEME()), TPMS_ECC_POINT());
+
+void write_csv(vector<long long> points, string fileout) {
+    ofstream OutFile(fileout);
+    for (auto i : points) {
+        OutFile << i << "\n";
+    }
+    OutFile.close();
+}
+
+vector<long long> sign_multiple(TPM_HANDLE signKey, int iterations) {
+    auto p1 = std::chrono::system_clock::now();
+    vector<long long> res;
+    for (int i = 0; i < iterations; i++) {
+        ostringstream oss;
+        oss << "print " << i;
+        TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, oss.str());
+
+        p1 = std::chrono::system_clock::now();
+        long long a = std::chrono::duration_cast<std::chrono::nanoseconds>(p1.time_since_epoch()).count();
+
+        auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
+        //cout << "Data to be signed:" << dataToSign.digest << endl;
+        //cout << "Signature:" << endl << sig->ToString(false) << endl; 
+
+        p1 = std::chrono::system_clock::now();
+        long long b = std::chrono::duration_cast<std::chrono::nanoseconds>(p1.time_since_epoch()).count();
+
+        res.push_back(b - a);
+
+        if (i % 1000 == 0) {
+            cout << 1.0 * i / iterations * 100 << endl;
+        }
+    }
+    return res;
+}
+
+TPM_HANDLE generate_ecdsa_key() {
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
+        TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
+        | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth, ByteVec(), TPMS_ECC_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_ECDSA(TPM_ALG_ID::SHA256), TPM_ECC_CURVE::NIST_P256, TPMS_NULL_KDF_SCHEME()), TPMS_ECC_POINT());
 
 
-	ByteVec userAuth = { 1, 2, 3, 4 };
+    ByteVec userAuth = { 1, 2, 3, 4 };
     TPMS_SENSITIVE_CREATE sensCreate(userAuth, ByteVec());
 
     // Create the key (no PCR-state captured)
@@ -36,12 +73,14 @@ void generate_ecdsa_key(){
     TPM_HANDLE& signKey = newPrimary.handle;
     signKey.SetAuth(userAuth);
 
-    TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, "abc");
+    //TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, "abc");
 
-    auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
-    cout << "Data to be signed:" << dataToSign.digest << endl;
-    cout << "Signature:" << endl << sig->ToString(false) << endl;
+    //auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
+    //cout << "Data to be signed:" << dataToSign.digest << endl;
+    //cout << "Signature:" << endl << sig->ToString(false) << endl;
+    return signKey;
 }
+
 void generate_rsa_key() {
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
@@ -114,8 +153,8 @@ int main(int argc, char* argv[])
 
     // Get blob hash
     //cout << argv[1] << endl;
-    generate_ecdsa_key();
-    cout<<"\n";
+    write_csv(sign_multiple(generate_ecdsa_key(), 100000), "out.csv");
+    cout << "\n";
     // And shut down the TPM
     tpm.Shutdown(TPM_SU::CLEAR);
     device.PowerOff();
