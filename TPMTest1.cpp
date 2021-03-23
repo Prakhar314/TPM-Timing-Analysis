@@ -6,10 +6,13 @@
 #include <fstream>
 #include <iterator>
 #include <vector>
-#include <chrono>
 #include "stdafx.h"
 #include "Tpm2.h"
-
+#ifdef _WIN32
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
 using namespace std;
 using namespace TpmCpp;
 
@@ -24,22 +27,17 @@ void write_csv(vector<long long> points, string fileout) {
 }
 
 vector<long long> sign_multiple(TPM_HANDLE signKey, int iterations) {
-    auto p1 = std::chrono::system_clock::now();
     vector<long long> res;
     for (int i = 0; i < iterations; i++) {
-        ostringstream oss;
-        oss << "print " << i;
-        TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, oss.str());
+        TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, "data to sign");
 
-        p1 = std::chrono::system_clock::now();
-        long long a = std::chrono::duration_cast<std::chrono::nanoseconds>(p1.time_since_epoch()).count();
+        long long a = __rdtsc();
 
         auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
         //cout << "Data to be signed:" << dataToSign.digest << endl;
         //cout << "Signature:" << endl << sig->ToString(false) << endl; 
 
-        p1 = std::chrono::system_clock::now();
-        long long b = std::chrono::duration_cast<std::chrono::nanoseconds>(p1.time_since_epoch()).count();
+        long long b = __rdtsc();
 
         res.push_back(b - a);
 
