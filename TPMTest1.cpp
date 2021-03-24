@@ -75,6 +75,36 @@ vector<long long> sign_multiple(TPM_HANDLE signKey, int iterations) {
     return res;
 }
 
+void validate_sig() {
+    TpmTbsDevice device;
+    if (!device.Connect()) {
+        cerr << "Could not connect to the TPM device";
+    }
+    Tpm2 tpm(device);
+
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
+        TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
+        | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth, ByteVec(), TPMS_ECC_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_ECDSA(TPM_ALG_ID::SHA256), TPM_ECC_CURVE::NIST_P256, TPMS_NULL_KDF_SCHEME()), TPMS_ECC_POINT());
+
+
+    ByteVec userAuth = { 1, 2, 3, 4 };
+    TPMS_SENSITIVE_CREATE sensCreate(userAuth, ByteVec());
+
+    auto newPrimary = tpm.CreatePrimary(TPM_RH::OWNER, sensCreate, templ, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>());
+
+    
+    TPM_HANDLE& signKey = newPrimary.handle;
+    signKey.SetAuth(userAuth);
+    TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, "data to sign");
+    auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
+
+    cout << "Data to be signed:" << dataToSign.digest << endl;
+    cout << "Signature:" << endl << sig->ToString(false) << endl;
+
+    auto sigVerify = tpm._AllowErrors().VerifySignature(signKey, dataToSign, *sig);
+    if (tpm._LastCommandSucceeded())
+        cout << "Signature verification succeeded" << endl;
+}
 
 vector<long long> generate_ecdsa_key(int iterations) {
     TpmTbsDevice device;
@@ -94,26 +124,16 @@ vector<long long> generate_ecdsa_key(int iterations) {
     // Create the key (no PCR-state captured)
     auto newPrimary = tpm.CreatePrimary(TPM_RH::OWNER, sensCreate, templ, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>());
 
-    // if (!tpm._LastCommandSucceeded())
-    // {
-    //     // Some TPMs only allow primary keys of no lower than a particular strength.
-    //     _ASSERT(tpm._GetLastResponseCode() == TPM_RC::VALUE);
-    //     newPrimary = tpm.CreatePrimary(TPM_RH::OWNER, sensCreate, templ, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>());
-    // }
-
     cout << "New ECDSA primary key" << endl << newPrimary.outPublic.ToString(false) << endl;
     TPM_HANDLE& signKey = newPrimary.handle;
     signKey.SetAuth(userAuth);
-
+    TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, "data to sign");
     vector<long long> res;
     for (int i = 0; i < iterations; i++) {
-        TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, "data to sign");
-
+        
         auto a = tpm.ReadClock().time;
 
         auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
-        //cout << "Data to be signed:" << dataToSign.digest << endl;
-        //cout << "Signature:" << endl << sig->ToString(false) << endl; 
 
         auto b = tpm.ReadClock().time;
 
@@ -137,7 +157,7 @@ int main(int argc, char* argv[])
 {
     write_csv(generate_ecdsa_key(10000), "out.csv");
     
-    // write_csv(sign_multiple(generate_ecdsa_key(), 10), "out.csv");
+    // validate_sig();
     cout << "\n";
     return 0;
 }
