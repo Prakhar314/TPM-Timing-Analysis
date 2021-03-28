@@ -1,0 +1,9 @@
+set term png
+set output "out-ecdsa-bn256.png"
+set nokey
+set xlabel "clock cycles"
+set ylabel "frequency"
+binwidth=100000
+set boxwidth binwidth
+bin(x,width)=width*floor(x/width) + width/2.0
+plot "ecdsa_bn256_rdtsc.csv" using (bin($1 < 360000000 ? $1 : 1/0,binwidth)):(1.0) smooth frequency with boxes

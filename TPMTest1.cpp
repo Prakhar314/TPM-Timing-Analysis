@@ -6,7 +6,7 @@
 #include <fstream>
 #include <iterator>
 #include <vector>
-#include <chrono>
+#include <intrin.h>
 #include "stdafx.h"
 #include "Tpm2.h"
 
@@ -55,13 +55,15 @@ vector<long long> sign_multiple(TPM_HANDLE signKey, int iterations) {
 
     for (int i = 0; i < iterations; i++) {
 
-        auto a = tpm.ReadClock().time;
+        //auto a = tpm.ReadClock().time;
+        auto a = __rdtsc();
 
         auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
         //cout << "Data to be signed:" << dataToSign.digest << endl;
         //cout << "Signature:" << endl << sig->ToString(false) << endl; 
 
-        auto b = tpm.ReadClock().time;
+        //auto b = tpm.ReadClock().time;
+        auto b = __rdtsc();
 
         res.push_back(b - a);
         if (i % 100 == 0) {
@@ -71,11 +73,11 @@ vector<long long> sign_multiple(TPM_HANDLE signKey, int iterations) {
     return res;
 }
 
-
-TPM_HANDLE generate_ecdsa_key() {   
+template<class EC_SCHEME = TPMS_SIG_SCHEME_ECDSA>
+TPM_HANDLE generate_ec_key(TPM_ECC_CURVE curveId = TPM_ECC_CURVE::NIST_P256) {
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
-        | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth, ByteVec(), TPMS_ECC_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_ECDSA(TPM_ALG_ID::SHA256), TPM_ECC_CURVE::NIST_P256, TPMS_NULL_KDF_SCHEME()), TPMS_ECC_POINT());
+        | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth, ByteVec(), TPMS_ECC_PARMS(TPMT_SYM_DEF_OBJECT(), EC_SCHEME(TPM_ALG_ID::SHA256), curveId, TPMS_NULL_KDF_SCHEME()), TPMS_ECC_POINT());
 
 
     ByteVec userAuth = { 1, 2, 3, 4 };
@@ -97,6 +99,25 @@ TPM_HANDLE generate_ecdsa_key() {
 
     // And shut down the TPM
     // sign_multiple(signKey, 100);
+    return signKey;
+}
+
+TPM_HANDLE generate_rsa_key() {
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
+        TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
+        | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth,
+        ByteVec(), TPMS_RSA_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA256), 1024, 65537), TPM2B_PUBLIC_KEY_RSA());
+
+    ByteVec userAuth = { 1, 2, 3, 4 };
+    TPMS_SENSITIVE_CREATE sensCreate(userAuth, ByteVec());
+
+    // Create the key (no PCR-state captured)
+    auto newPrimary = tpm._AllowErrors()
+        .CreatePrimary(TPM_RH::OWNER, sensCreate, templ, ByteVec(), vector<TPMS_PCR_SELECTION>());
+
+    TPM_HANDLE& signKey = newPrimary.handle;
+    signKey.SetAuth(userAuth);
+
     return signKey;
 }
 
@@ -192,11 +213,11 @@ int main(int argc, char* argv[])
     }
     tpm._SetDevice(device);
 
-    //// Power-cycle the simulator
+    // Power-cycle the simulator
     //device.PowerOff();
     //device.PowerOn();
 
-    //// And startup the TPM
+    // And startup the TPM
     //tpm.Startup(TPM_SU::CLEAR);
     if (argc == 2) {
         string s;
@@ -210,12 +231,17 @@ int main(int argc, char* argv[])
             case 1:
                 cout << "Enter number of iterations: ";
                 cin >> i;
-                write_csv(sign_multiple(generate_ecdsa_key(), i), "out.csv");
+                write_csv(sign_multiple(generate_ec_key<>(TPM_ECC_CURVE::BN_P256), i), "out-ecdsa.csv");
                 break;
             case 2:
-                sign_message();
+                cout << "Enter number of iterations: ";
+                cin >> i;
+                write_csv(sign_multiple(generate_rsa_key(), i), "out-rsa.csv");
                 break;
             case 3:
+                sign_message();
+                break;
+            case 4:
                 val_message();
                 break;
             default:
