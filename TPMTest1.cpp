@@ -15,6 +15,8 @@ using namespace TpmCpp;
 static const TPMT_SYM_DEF_OBJECT Aes128Cfb{ TPM_ALG_ID::AES, 128, TPM_ALG_ID::CFB };
 Tpm2 tpm;
 TpmTcpDevice device;
+vector<pair<string, pair<int, ByteVec>>> actions_log(0);
+
 
 void getBlobHash(string filename) {
     //input as char vec
@@ -37,7 +39,7 @@ void getBlobHash(string filename) {
     //cout << bytes << endl;
     //get SHA1 hash
     HashResponse h = tpm.Hash(bytes, TPM_ALG_ID::SHA1, TPM_RH_NULL);
-    cout<< h.outHash<<endl;
+    std::cout<< h.outHash<<endl;
 }
 
 void write_csv(vector<long long> points, string fileout) {
@@ -65,7 +67,7 @@ vector<long long> sign_multiple(TPM_HANDLE signKey, int iterations) {
 
         res.push_back(b - a);
         if (i % 100 == 0) {
-            cout << 1.0 * i / iterations * 100 << "%" << endl;
+            std::cout << 1.0 * i / iterations * 100 << "%" << endl;
         }
     }
     return res;
@@ -80,6 +82,22 @@ TPM_HANDLE gen_prim_key() {
         TPM2B_PUBLIC_KEY_RSA());
     return tpm.CreatePrimary(TPM_RH::OWNER, TPMS_SENSITIVE_CREATE(), storagePrimaryTemplate, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>())
         .handle;
+}
+
+TPM_HANDLE MakeChildSigningKey(TPM_HANDLE parent, bool restricted)
+{
+    TPMA_OBJECT restrictedAttribute = restricted ? TPMA_OBJECT::restricted : 0;
+
+    TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
+        TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
+            | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth | restrictedAttribute,
+        ByteVec(),  // No policy
+        TPMS_RSA_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA1), 2048, 65537), // PKCS1.5
+        TPM2B_PUBLIC_KEY_RSA());
+
+    auto newSigningKey = tpm.Create(parent, TPMS_SENSITIVE_CREATE(), templ, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>());
+
+    return tpm.Load(parent, newSigningKey.outPrivate, newSigningKey.outPublic);
 }
 
 TPM_HANDLE generate_ecdsa_key() {   
@@ -153,7 +171,7 @@ void encrypt_decrypt(string inFile) {
     auto decrypted = tpm.EncryptDecrypt(aesHandle, (BYTE)1, TPM_ALG_ID::CFB, iv, encrypted.outData);
     string dec_str(reinterpret_cast<const char*>(&decrypted.outData[0]), decrypted.outData.size());
     write_to_file("out_enc.txt", dec_str);
-    cout << "AES encryption" << endl <<
+    std::cout << "AES encryption" << endl <<
         "in:  " << toEncrypt << endl <<
         "enc: " << encrypted.outData << endl <<
         "dec: " << decrypted.outData << endl;
@@ -161,9 +179,9 @@ void encrypt_decrypt(string inFile) {
 }
 void sign_message() {
 
-    cout << "Enter message" << endl;
+    std::cout << "Enter message" << endl;
     string message;
-    cin >> message;
+    std::cin >> message;
     write_to_file("message.txt", message);
 
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
@@ -181,13 +199,13 @@ void sign_message() {
     signKey.SetAuth(userAuth);
 
     write_to_file("key.txt", newPrimary.outPublic.unique->Serialize(SerializationType::JSON));
-    cout << "Public Key generated and written to key.txt" << endl;
+    std::cout << "Public Key generated and written to key.txt" << endl;
 
     TPM_HASH dataToSign = TPM_HASH::FromHashOfString(TPM_ALG_ID::SHA256, message);
 
     auto sig = tpm.Sign(signKey, dataToSign, TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK());
     write_to_file("sign.txt", sig->Serialize(SerializationType::JSON));
-    cout << "Signed and written to sign.txt" << endl;
+    std::cout << "Signed and written to sign.txt" << endl;
 }
 
 void deserialize_json(string filename, TpmStructure &tpms) {
@@ -217,37 +235,126 @@ void val_message() {
 
     // verify
     auto sigVerify = tpm._AllowErrors().VerifySignature(pubHandle, dataToSign, sig);
-    cout << "Signature is " << (tpm._LastCommandSucceeded() ? "OK" : "BAD") << endl;
+    std::cout << "Signature is " << (tpm._LastCommandSucceeded() ? "OK" : "BAD") << endl;
+}
+
+void update_actions_log(string description, int pcr, ByteVec &event_data){
+    actions_log.push_back({ description, {pcr, event_data} });
+}
+void reset_actions_log(){
+    actions_log.clear();
+}
+
+void perform_action(string des, int pcr, ByteVec &event_data){
+    tpm.PCR_Event(TPM_HANDLE::Pcr(pcr), event_data);
+    std::cout<<des<<"\n";
+    update_actions_log(des, pcr, event_data);
+}
+void action0(){
+    string des = "Performing action 1";
+    ByteVec event_data = { 1,2,3 };
+    perform_action(des, 0, event_data);
+}
+void action1(){
+    string des = "Performing action 2";
+    ByteVec event_data = { 2,3,4 };
+    perform_action(des, 1, event_data);
+}
+void action2(){
+    string des = "Performing action 3";
+    ByteVec event_data = { 3,4,5 };
+    perform_action(des, 2, event_data);
+}
+vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old){
+    TPM_HASH pcrSim0(TPM_ALG_ID::SHA1, pcrVals_old.pcrValues[0]);
+    TPM_HASH pcrSim1(TPM_ALG_ID::SHA1, pcrVals_old.pcrValues[1]);
+    TPM_HASH pcrSim2(TPM_ALG_ID::SHA1, pcrVals_old.pcrValues[2]);
+    for (auto x : actions_log) {
+        if (x.second.first == 0) {
+            pcrSim0.Event(x.second.second);
+        }
+        else if (x.second.first == 1) {
+            pcrSim1.Event(x.second.second);
+        }
+        else {
+            pcrSim2.Event(x.second.second);
+        }
+
+    }
+    return {pcrSim0, pcrSim1, pcrSim2};
+}
+void update_using_nonce(vector<TPM_HASH>&pcrVals_hash, ByteVec Nonce) {
+    pcrVals_hash[0].Event(Nonce);
+    pcrVals_hash[1].Event(Nonce);
+    pcrVals_hash[2].Event(Nonce);
+}
+void attestation(){
+	TPM_HANDLE primaryKey = gen_prim_key();
+	TPM_HANDLE aik = MakeChildSigningKey(primaryKey, false);
+    
+	std::cout << ">> PCR Quoting" << endl;
+    vector<TPMS_PCR_SELECTION> pcrsToQuote ={ {TPM_ALG_ID::SHA1, 0}, {TPM_ALG_ID::SHA1, 1}, {TPM_ALG_ID::SHA1, 2} };
+    auto pcrVals_old = tpm.PCR_Read(pcrsToQuote);
+    // Do an event to make sure the value is non-zero
+    action0();
+    action1();
+    action2();
+
+    // Then read the value so that we can validate the signature later
+    auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old);
+    
+    // Do the quote.  Note that we provide a nonce.
+    ByteVec Nonce = Crypto::GetRand(16);
+    update_using_nonce(pcrVals_hash_calc, Nonce);
+    tpm.PCR_Event(TPM_HANDLE::Pcr(0), Nonce);
+    tpm.PCR_Event(TPM_HANDLE::Pcr(1), Nonce);
+    tpm.PCR_Event(TPM_HANDLE::Pcr(2), Nonce);
+
+    auto pcrVals = tpm.PCR_Read(pcrsToQuote);
+    vector<TPM_HASH> pcrVals_hash = { TPM_HASH(TPM_ALG_ID::SHA1, pcrVals.pcrValues[0]) , TPM_HASH(TPM_ALG_ID::SHA1, pcrVals.pcrValues[1]), TPM_HASH(TPM_ALG_ID::SHA1, pcrVals.pcrValues[2]) };
+
+    vector<shared_ptr<TPMU_SIGNATURE>> sig = { tpm.Sign(aik, pcrVals_hash[0], TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK()), tpm.Sign(aik, pcrVals_hash[1], TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK()), tpm.Sign(aik, pcrVals_hash[2], TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK()) };
+    auto pubKey = tpm.ReadPublic(aik);
+
+
+    bool sigOk = true;
+    for (int i = 0; i < 3; i++) {
+        sigOk = sigOk && pubKey.outPublic.ValidateSignature(pcrVals_hash_calc[i], *sig[i]);
+    }
+    if (sigOk)
+        std::cout << "The quote was verified correctly" << endl;
+    _ASSERT(sigOk);
+
 }
 
 int main(int argc, char* argv[])
 {
-    TpmTbsDevice device;
-    //TpmTcpDevice device;
-    if (!device.Connect()) {
-    //if (!device.Connect("127.0.0.1", 2321)) {
+    // TpmTbsDevice device;
+    TpmTcpDevice device;
+    // if (!device.Connect()) {
+    if (!device.Connect("127.0.0.1", 2321)) {
         cerr << "Could not connect to the TPM device";
     }
     tpm._SetDevice(device);
 
-    //// Power-cycle the simulator
-    //device.PowerOff();
-    //device.PowerOn();
+    // Power-cycle the simulator
+    device.PowerOff();
+    device.PowerOn();
 
-    //// And startup the TPM
-    //tpm.Startup(TPM_SU::CLEAR);
+    // And startup the TPM
+    tpm.Startup(TPM_SU::CLEAR);
     if (argc == 2) {
         string s;
         int i = 0;
         switch (stoi(argv[1])) {
             case 0:
-                cout << "Enter file name: ";
-                cin >> s;
+                std::cout << "Enter file name: ";
+                std::cin >> s;
                 getBlobHash(s);
                 break;
             case 1:
-                cout << "Enter number of iterations: ";
-                cin >> i;
+                std::cout << "Enter number of iterations: ";
+                std::cin >> i;
                 write_csv(sign_multiple(generate_ecdsa_key(), i), "out.csv");
                 break;
             case 2:
@@ -257,14 +364,19 @@ int main(int argc, char* argv[])
                 val_message();
                 break;
             case 4:
-                cout << "Enter file name: ";
-                cin >> s;
+                std::cout << "Enter file name: ";
+                std::cin >> s;
                 encrypt_decrypt(s);
                 break;
+            case 5:
+            	std::cout << "Attestation mode selected\n";
+                attestation();
+                break;
+
             default:
-                cout << "invalid argument\n";
+                std::cout << "invalid argument\n";
         }
-        cout << "\n";
+        std::cout << "\n";
     }
     return 0;
 }
