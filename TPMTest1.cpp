@@ -14,7 +14,8 @@ using namespace std;
 using namespace TpmCpp;
 static const TPMT_SYM_DEF_OBJECT Aes128Cfb{ TPM_ALG_ID::AES, 128, TPM_ALG_ID::CFB };
 Tpm2 tpm;
-TpmTcpDevice device;
+TpmTcpDevice device2;
+TpmTbsDevice device1;
 class hostSystem {
 private:
     Tpm2 tpm;
@@ -117,15 +118,30 @@ public:
 
 void connectSimTPM(){
     
-    if (!device.Connect("127.0.0.1", 2321)) {
+    if (!device2.Connect("127.0.0.1", 2321)) {
         cerr << "Could not connect to the TPM device";
     }
-    tpm._SetDevice(device);
+    tpm._SetDevice(device2);
 
-    device.PowerOff();
-    device.PowerOn();
+    device2.PowerOff();
+    device2.PowerOn();
     tpm.Startup(TPM_SU::CLEAR);
 }
+void shutDownSimTPM(){
+    tpm.Shutdown(TPM_SU::CLEAR);
+    device2.PowerOff();
+}
+
+void connectTPM() {
+    if (!device1.Connect()) {
+        cerr << "Could not connect to the TPM device";
+        return;
+    }
+
+    // Create a Tpm2 object "on top" of the device.
+    tpm._SetDevice(device1);
+}
+
 
 void getBlobHash(string filename) {
     //input as char vec
@@ -420,19 +436,21 @@ int main(int argc, char* argv[])
             std::cin >> s;
             connectSimTPM();
             getBlobHash(s);
+            shutDownSimTPM();
             break;
         case 1:
             std::cout << "Enter number of iterations: ";
             std::cin >> i;
             connectSimTPM();
             write_csv(sign_multiple(generate_ecdsa_key(), i), "out.csv");
+            shutDownSimTPM();
             break;
         case 2:
-            connectSimTPM();
+            connectTPM();
             sign_message();
             break;
         case 3:
-            connectSimTPM();
+            connectTPM();
             val_message();
             break;
         case 4:
@@ -440,6 +458,7 @@ int main(int argc, char* argv[])
             std::cin >> s;
             connectSimTPM();
             encrypt_decrypt(s);
+            shutDownSimTPM();
             break;
         case 5:
             std::cout << "Attestation mode selected\n";
