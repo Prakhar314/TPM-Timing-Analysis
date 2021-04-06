@@ -95,7 +95,7 @@ public:
         // And startup the TPM
         tpm.Startup(TPM_SU::CLEAR);
         primaryKey = gen_prim_key();
-        aik = MakeChildSigningKey(primaryKey, false);
+        aik = MakeChildSigningKey(primaryKey, true);
     }
     vector<pair<string, pair<int, ByteVec>>> requestEventLog() {
         return event_log;
