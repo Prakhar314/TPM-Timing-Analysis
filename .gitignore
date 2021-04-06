@@ -361,6 +361,7 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-Debug/*.tlog/
-Debug/*.csv
-Debug/*.txt
+Debug/*
+Debug/TPMTest1.tlog/*
+Debug/*/*
+!Debug/TSS.CPP.*
