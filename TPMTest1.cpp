@@ -39,7 +39,7 @@ void getBlobHash(string filename) {
     //cout << bytes << endl;
     //get SHA1 hash
     HashResponse h = tpm.Hash(bytes, TPM_ALG_ID::SHA1, TPM_RH_NULL);
-    std::cout<< h.outHash<<endl;
+    std::cout << h.outHash << endl;
 }
 
 void write_csv(vector<long long> points, string fileout) {
@@ -90,7 +90,7 @@ TPM_HANDLE MakeChildSigningKey(TPM_HANDLE parent, bool restricted)
 
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA1,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
-            | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth | restrictedAttribute,
+        | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth | restrictedAttribute,
         ByteVec(),  // No policy
         TPMS_RSA_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_RSASSA(TPM_ALG_ID::SHA1), 2048, 65537), // PKCS1.5
         TPM2B_PUBLIC_KEY_RSA());
@@ -100,7 +100,7 @@ TPM_HANDLE MakeChildSigningKey(TPM_HANDLE parent, bool restricted)
     return tpm.Load(parent, newSigningKey.outPrivate, newSigningKey.outPublic);
 }
 
-TPM_HANDLE generate_ecdsa_key() {   
+TPM_HANDLE generate_ecdsa_key() {
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
         | TPMA_OBJECT::sensitiveDataOrigin | TPMA_OBJECT::userWithAuth, ByteVec(), TPMS_ECC_PARMS(TPMT_SYM_DEF_OBJECT(), TPMS_SCHEME_ECDSA(TPM_ALG_ID::SHA256), TPM_ECC_CURVE::NIST_P256, TPMS_NULL_KDF_SCHEME()), TPMS_ECC_POINT());
@@ -153,15 +153,15 @@ void encrypt_decrypt(string inFile) {
 
     // Make an AES key
     TPMT_PUBLIC inPublic(TPM_ALG_ID::SHA256,
-        TPMA_OBJECT::decrypt | TPMA_OBJECT::sign |TPMA_OBJECT::userWithAuth
+        TPMA_OBJECT::decrypt | TPMA_OBJECT::sign | TPMA_OBJECT::userWithAuth
         | TPMA_OBJECT::sensitiveDataOrigin,
         ByteVec(),
         TPMS_SYMCIPHER_PARMS(Aes128Cfb),
         TPM2B_DIGEST_SYMCIPHER());
-  
+
 
     auto aesKey = tpm.Create(prim, TPMS_SENSITIVE_CREATE(), inPublic, ByteVec(), vector<TPMS_PCR_SELECTION>());
-    
+
     TPM_HANDLE aesHandle = tpm.Load(prim, aesKey.outPrivate, aesKey.outPublic);
     string toEnc_str = read_from_file(inFile);
     ByteVec toEncrypt(toEnc_str.begin(), toEnc_str.end());
@@ -194,7 +194,7 @@ void sign_message() {
     auto newPrimary = tpm.CreatePrimary(TPM_RH::OWNER, sensCreate, templ, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>());
 
     //cout << "New ECDSA primary key" << endl << newPrimary.outPublic.ToString(false) << endl;
-   
+
     TPM_HANDLE& signKey = newPrimary.handle;
     signKey.SetAuth(userAuth);
 
@@ -208,7 +208,7 @@ void sign_message() {
     std::cout << "Signed and written to sign.txt" << endl;
 }
 
-void deserialize_json(string filename, TpmStructure &tpms) {
+void deserialize_json(string filename, TpmStructure& tpms) {
     string jsonStr = read_from_file(filename);
     JsonSerializer(jsonStr).readObj(tpms);
 }
@@ -221,7 +221,7 @@ void val_message() {
     //Get public key
     TPMS_ECC_POINT ecKey;
     deserialize_json("key.txt", ecKey);
-    
+
     // load key
     TPMT_PUBLIC templ(TPM_ALG_ID::SHA256,
         TPMA_OBJECT::sign | TPMA_OBJECT::fixedParent | TPMA_OBJECT::fixedTPM
@@ -238,62 +238,62 @@ void val_message() {
     std::cout << "Signature is " << (tpm._LastCommandSucceeded() ? "OK" : "BAD") << endl;
 }
 
-void update_actions_log(string description, int pcr, ByteVec &event_data){
+void update_actions_log(string description, int pcr, ByteVec& event_data) {
     actions_log.push_back({ description, {pcr, event_data} });
 }
-void reset_actions_log(){
+void reset_actions_log() {
     actions_log.clear();
 }
 
-void perform_action(string des, int pcr, ByteVec &event_data){
+void perform_action(string des, int pcr, ByteVec& event_data) {
     tpm.PCR_Event(TPM_HANDLE::Pcr(pcr), event_data);
-    std::cout<<des<<"\n";
+    std::cout << des << "\n";
     update_actions_log(des, pcr, event_data);
 }
-void action0(){
+void action0() {
     string des = "Performing action 1";
     ByteVec event_data = { 1,2,3 };
     perform_action(des, 0, event_data);
 }
-void action1(){
+void action1() {
     string des = "Performing action 2";
     ByteVec event_data = { 2,3,4 };
     perform_action(des, 1, event_data);
 }
-void action2(){
+void action2() {
     string des = "Performing action 3";
     ByteVec event_data = { 3,4,5 };
     perform_action(des, 2, event_data);
 }
-vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old){
+vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old) {
     TPM_HASH pcrSim0(TPM_ALG_ID::SHA1, pcrVals_old.pcrValues[0]);
     TPM_HASH pcrSim1(TPM_ALG_ID::SHA1, pcrVals_old.pcrValues[1]);
     TPM_HASH pcrSim2(TPM_ALG_ID::SHA1, pcrVals_old.pcrValues[2]);
     for (auto x : actions_log) {
         if (x.second.first == 0) {
-            pcrSim0.Event(x.second.second);
+            pcrSim0.Event(TPM_HASH(TPM_ALG_ID::SHA1, x.second.second).digest);
         }
         else if (x.second.first == 1) {
-            pcrSim1.Event(x.second.second);
+            pcrSim1.Event(TPM_HASH(TPM_ALG_ID::SHA1, x.second.second).digest);
         }
         else {
-            pcrSim2.Event(x.second.second);
+            pcrSim2.Event(TPM_HASH(TPM_ALG_ID::SHA1, x.second.second).digest);
         }
 
     }
-    return {pcrSim0, pcrSim1, pcrSim2};
+    return { pcrSim0, pcrSim1, pcrSim2 };
 }
-void update_using_nonce(vector<TPM_HASH>&pcrVals_hash, ByteVec Nonce) {
+void update_using_nonce(vector<TPM_HASH>& pcrVals_hash, ByteVec Nonce) {
     pcrVals_hash[0].Event(Nonce);
     pcrVals_hash[1].Event(Nonce);
     pcrVals_hash[2].Event(Nonce);
 }
-void attestation(){
-	TPM_HANDLE primaryKey = gen_prim_key();
-	TPM_HANDLE aik = MakeChildSigningKey(primaryKey, false);
-    
-	std::cout << ">> PCR Quoting" << endl;
-    vector<TPMS_PCR_SELECTION> pcrsToQuote ={ {TPM_ALG_ID::SHA1, 0}, {TPM_ALG_ID::SHA1, 1}, {TPM_ALG_ID::SHA1, 2} };
+void attestation() {
+    TPM_HANDLE primaryKey = gen_prim_key();
+    TPM_HANDLE aik = MakeChildSigningKey(primaryKey, false);
+
+    std::cout << ">> PCR Quoting" << endl;
+    vector<TPMS_PCR_SELECTION> pcrsToQuote = { {TPM_ALG_ID::SHA1, 0}, {TPM_ALG_ID::SHA1, 1}, {TPM_ALG_ID::SHA1, 2} };
     auto pcrVals_old = tpm.PCR_Read(pcrsToQuote);
     // Do an event to make sure the value is non-zero
     action0();
@@ -302,29 +302,30 @@ void attestation(){
 
     // Then read the value so that we can validate the signature later
     auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old);
-    
+
     // Do the quote.  Note that we provide a nonce.
     ByteVec Nonce = Crypto::GetRand(16);
-    update_using_nonce(pcrVals_hash_calc, Nonce);
-    tpm.PCR_Event(TPM_HANDLE::Pcr(0), Nonce);
-    tpm.PCR_Event(TPM_HANDLE::Pcr(1), Nonce);
-    tpm.PCR_Event(TPM_HANDLE::Pcr(2), Nonce);
 
-    auto pcrVals = tpm.PCR_Read(pcrsToQuote);
-    vector<TPM_HASH> pcrVals_hash = { TPM_HASH(TPM_ALG_ID::SHA1, pcrVals.pcrValues[0]) , TPM_HASH(TPM_ALG_ID::SHA1, pcrVals.pcrValues[1]), TPM_HASH(TPM_ALG_ID::SHA1, pcrVals.pcrValues[2]) };
-
-    vector<shared_ptr<TPMU_SIGNATURE>> sig = { tpm.Sign(aik, pcrVals_hash[0], TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK()), tpm.Sign(aik, pcrVals_hash[1], TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK()), tpm.Sign(aik, pcrVals_hash[2], TPMS_NULL_SIG_SCHEME(), TPMT_TK_HASHCHECK()) };
     auto pubKey = tpm.ReadPublic(aik);
 
-
-    bool sigOk = true;
-    for (int i = 0; i < 3; i++) {
-        sigOk = sigOk && pubKey.outPublic.ValidateSignature(pcrVals_hash_calc[i], *sig[i]);
-    }
+    auto quote = tpm.Quote(aik, Nonce, TPMS_NULL_SIG_SCHEME(), pcrsToQuote);
+    bool sigOk = pubKey.outPublic.ValidateQuote(tpm.PCR_Read(pcrsToQuote), Nonce, quote);
     if (sigOk)
         std::cout << "The quote was verified correctly" << endl;
     _ASSERT(sigOk);
 
+    TPMS_ATTEST qAttest = quote.quoted;
+    TPMS_QUOTE_INFO* qInfo = dynamic_cast<TPMS_QUOTE_INFO*>(&*qAttest.attested);
+    auto d_quote = qInfo->pcrDigest;
+
+    ByteVec pcrDigests;
+    for (auto i : pcrVals_hash_calc) {
+        pcrDigests.insert(pcrDigests.end(), i.digest.begin(), i.digest.end());
+    }
+    auto d_calc = Crypto::Hash(TPM_ALG_ID::SHA1, pcrDigests);
+    if (d_quote == d_calc) {
+        cout << "pcr values match" << endl;
+    }
 }
 
 int main(int argc, char* argv[])
@@ -347,34 +348,34 @@ int main(int argc, char* argv[])
         string s;
         int i = 0;
         switch (stoi(argv[1])) {
-            case 0:
-                std::cout << "Enter file name: ";
-                std::cin >> s;
-                getBlobHash(s);
-                break;
-            case 1:
-                std::cout << "Enter number of iterations: ";
-                std::cin >> i;
-                write_csv(sign_multiple(generate_ecdsa_key(), i), "out.csv");
-                break;
-            case 2:
-                sign_message();
-                break;
-            case 3:
-                val_message();
-                break;
-            case 4:
-                std::cout << "Enter file name: ";
-                std::cin >> s;
-                encrypt_decrypt(s);
-                break;
-            case 5:
-            	std::cout << "Attestation mode selected\n";
-                attestation();
-                break;
+        case 0:
+            std::cout << "Enter file name: ";
+            std::cin >> s;
+            getBlobHash(s);
+            break;
+        case 1:
+            std::cout << "Enter number of iterations: ";
+            std::cin >> i;
+            write_csv(sign_multiple(generate_ecdsa_key(), i), "out.csv");
+            break;
+        case 2:
+            sign_message();
+            break;
+        case 3:
+            val_message();
+            break;
+        case 4:
+            std::cout << "Enter file name: ";
+            std::cin >> s;
+            encrypt_decrypt(s);
+            break;
+        case 5:
+            std::cout << "Attestation mode selected\n";
+            attestation();
+            break;
 
-            default:
-                std::cout << "invalid argument\n";
+        default:
+            std::cout << "invalid argument\n";
         }
         std::cout << "\n";
     }
