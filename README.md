@@ -13,3 +13,5 @@
         <li>RSA Encrypt Decrypt</li>
         <li>Attestation</li>
     </ol>
+    
+[TSS.CPP](https://github.com/microsoft/TSS.MSR/tree/master/TSS.CPP)
