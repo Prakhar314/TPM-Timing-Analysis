@@ -10,7 +10,7 @@
         <li>ECDSA Timing</li>
         <li>ECDSA Sign</li>
         <li>ECDSA Validate</li>
-        <li>RSA Encrypt Decrypt</li>
+        <li>AES Encrypt Decrypt</li>
         <li>Attestation</li>
     </ol>
     

@@ -386,26 +386,32 @@ vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old, vector<pair<string, 
 
 void attestation() {
     hostSystem system1;
+    // get public ket
+    auto pubKey = system1.requestPubAikKey();
 
-    std::cout << ">> PCR Quoting" << endl;
+    //initial pcr val
+    std::cout << "PCR Quoting" << endl;
     auto pcrVals_old = system1.requestPcrVal();
     
+    //perform actions and get event logs
     system1.performActions();
     auto event_log = system1.requestEventLog();
-
-    // Then read the value so that we can validate the signature later
-    auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old, event_log);
 
     // Do the quote.  Note that we provide a nonce.
     ByteVec Nonce = Crypto::GetRand(16);
 
-    auto pubKey = system1.requestPubAikKey();
-
+    // get quote and new pcr vals
     auto quote = system1.requestQuote(Nonce);
-    bool sigOk = pubKey.outPublic.ValidateQuote(system1.requestPcrVal(), Nonce, quote);
+    auto pcrVals_new = system1.requestPcrVal();
+
+    //validate signature and nonce
+    bool sigOk = pubKey.outPublic.ValidateQuote(pcrVals_new, Nonce, quote);
     if (sigOk)
         std::cout << "The quote was verified correctly" << endl;
     _ASSERT(sigOk);
+
+    // Regenerate pcr digest on client
+    auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old, event_log);
 
     TPMS_ATTEST qAttest = quote.quoted;
     TPMS_QUOTE_INFO* qInfo = dynamic_cast<TPMS_QUOTE_INFO*>(&*qAttest.attested);
