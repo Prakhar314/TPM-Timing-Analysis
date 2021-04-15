@@ -146,25 +146,41 @@ void connectTPM() {
 
 ByteVec getBlobHash(string filename) {
     //input as char vec
-    ifstream input(filename, ios::in | ios::binary);
-    vector<char> blob(
-        (istreambuf_iterator<char>(input)),
-        (istreambuf_iterator<char>()));
-    input.close();
-    //make prefix
-    int si = blob.size();
-    stringstream ss;
-    ss << "blob " << si;
-    string prefix = ss.str();
+    ifstream input(filename, ios::in | ios::binary | ios::ate);
+    int size = input.tellg();
+    //cout << size << endl;
+    auto hashHandle = tpm.HashSequenceStart(ByteVec(), TPM_ALG_ID::SHA256);
 
+    stringstream ss;
+    ss << "blob " << size;
+    string prefix = ss.str();
+    prefix.push_back('\0');
     //make byte vec from prefix char vec
-    ByteVec bytes(prefix.begin(), prefix.end());
-    bytes.push_back('\0');
-    bytes.insert(bytes.end(), blob.begin(), blob.end());
-    //cout << "bytes " << bytes << endl;
-    //get SHA256 hash
-    TPM_HASH x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, bytes);
-    return x.digest;
+    ByteVec bytes,accum;
+    bytes = ByteVec(prefix.begin(), prefix.end());
+    // to verify with library
+    accum.insert(accum.begin(), bytes.begin(), bytes.end());
+
+    vector<char> buffer(1024>size?size:1024, 0);
+    while (!input.eof()) {
+
+        tpm.SequenceUpdate(hashHandle, bytes);
+
+        input.read(buffer.data(), buffer.size());
+        streamsize dataSize = input.gcount();
+        bytes = ByteVec(buffer.begin(), buffer.begin()+dataSize);
+
+        accum.insert(accum.begin(), bytes.begin(), bytes.end());
+    }
+
+    input.close();
+    //get SHA256 finally
+    auto y = tpm.SequenceComplete(hashHandle,bytes,TPM_RH_NULL);
+    //get SHA256 hash using Crypto lib
+    TPM_HASH x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, accum);
+    // verify
+    _ASSERT(x.digest == y.result);
+    return y.result;
 }
 
 ByteVec getDirectoryHash(string path) {
@@ -281,7 +297,7 @@ void attestation() {
 
 int main(int argc, char* argv[])
 {
-    attestation();
+    //attestation();
 
     cout << "enter directory path" << endl;
     string x;
@@ -295,6 +311,6 @@ int main(int argc, char* argv[])
     device2.PowerOff();
     device2.PowerOn();
     tpm.Startup(TPM_SU::CLEAR);
-    cout << "SHA3-256: "<< getDirectoryHash(x) << endl;
+    cout << "SHA-256: "<< getDirectoryHash(x) << endl;
     return 0;
 }
