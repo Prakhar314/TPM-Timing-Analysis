@@ -196,7 +196,21 @@ ByteVec getDirectoryHash(string path) {
         table.push_back('\n');
         cout << "done" << endl;
     }
-    return TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, table).digest;
+
+    auto hashHandle = tpm.HashSequenceStart(ByteVec(), TPM_ALG_ID::SHA256);
+    ByteVec buffer;
+    int buf_size = 1024;
+    ByteVec::iterator ptr = table.begin();
+    for (int i = 0; i < table.size() / buf_size; i++) {
+        buffer = ByteVec(ptr, ptr + buf_size);
+        tpm.SequenceUpdate(hashHandle, buffer);
+        advance(ptr, buf_size);
+    }
+    buffer = ByteVec(ptr, ptr + table.size()%buf_size);
+    auto y = tpm.SequenceComplete(hashHandle, buffer, TPM_RH_NULL);
+    auto x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, table);
+    _ASSERT(x.digest == y.result);
+    return y.result;
 }
 
 TPM_HANDLE gen_prim_key() {
