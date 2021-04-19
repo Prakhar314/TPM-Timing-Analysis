@@ -8,6 +8,7 @@
 #include <vector>
 #include <intrin.h>
 #include <filesystem>
+#include <chrono>
 #include "stdafx.h"
 #include "Tpm2.h"
 
@@ -18,10 +19,37 @@ static const TPMT_SYM_DEF_OBJECT Aes128Cfb{ TPM_ALG_ID::AES, 128, TPM_ALG_ID::CF
 Tpm2 tpm;
 TpmTcpDevice device2;
 TpmTbsDevice device1;
+
+
+void connectSimTPM() {
+
+    if (!device2.Connect("127.0.0.1", 2321)) {
+        cerr << "Could not connect to the TPM device";
+    }
+    tpm._SetDevice(device2);
+
+    device2.PowerOff();
+    device2.PowerOn();
+    tpm.Startup(TPM_SU::CLEAR);
+}
+void shutDownSimTPM() {
+    tpm.Shutdown(TPM_SU::CLEAR);
+    device2.PowerOff();
+}
+
+void connectTPM() {
+    if (!device1.Connect()) {
+        cerr << "Could not connect to the TPM device";
+        return;
+    }
+
+    // Create a Tpm2 object "on top" of the device.
+    tpm._SetDevice(device1);
+}
+
 class hostSystem {
 private:
-    Tpm2 tpm;
-    TpmTcpDevice device;
+    bool verbose = true;
     vector<pair<string, pair<int, ByteVec>>> event_log{};
     TPM_HANDLE primaryKey;
     TPM_HANDLE aik;
@@ -42,7 +70,8 @@ private:
 
     void perform_action(string des, int pcr, ByteVec& event_data) {
         tpm.PCR_Event(TPM_HANDLE::Pcr(pcr), event_data);
-        std::cout << des << "\n";
+        if(verbose)
+            cout << des << "\n";
         update_event_log(des, pcr, event_data);
     }
     void action0() {
@@ -137,49 +166,63 @@ private:
 	        	table.push_back('\n');
 	        }
 	        else{
-		        cout << "reading file " << filename << " ... ";
+                if (verbose) {
+                    cout << "reading file " << filename << " ... ";
+                }
 		        ByteVec hash = getBlobHash(entry.path().string());
 		        //cout << hash.size()<<endl;
 		        table.insert(table.end(), hash.begin(), hash.end());
 		        table.push_back('\0');
 		        table.insert(table.end(), filename.begin(), filename.end());
 		        table.push_back('\n');
-		        cout << "done" << endl;
+                if (verbose) {
+                    cout << "done" << endl;
+                }
 	    	}
 	    }
-
-	    auto hashHandle = tpm.HashSequenceStart(ByteVec(), TPM_ALG_ID::SHA256);
-	    ByteVec buffer;
-	    int buf_size = 1024;
-	    ByteVec::iterator ptr = table.begin();
-	    for (int i = 0; i < table.size() / buf_size; i++) {
-	        buffer = ByteVec(ptr, ptr + buf_size);
-	        tpm.SequenceUpdate(hashHandle, buffer);
-	        advance(ptr, buf_size);
-	    }
-	    buffer = ByteVec(ptr, ptr + table.size()%buf_size);
-	    auto y = tpm.SequenceComplete(hashHandle, buffer, TPM_RH_NULL);
-	    auto x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, table);
-	    _ASSERT(x.digest == y.result);
-	    return y.result;
+        if (table.size() != 0) {
+	        auto hashHandle = tpm.HashSequenceStart(ByteVec(), TPM_ALG_ID::SHA256);
+	        ByteVec buffer;
+	        int buf_size = 1024;
+	        ByteVec::iterator ptr = table.begin();
+	        for (int i = 0; i < table.size() / buf_size; i++) {
+	            buffer = ByteVec(ptr, ptr + buf_size);
+	            tpm.SequenceUpdate(hashHandle, buffer);
+	            advance(ptr, buf_size);
+	        }
+	        buffer = ByteVec(ptr, ptr + table.size()%buf_size);
+	        auto y = tpm.SequenceComplete(hashHandle, buffer, TPM_RH_NULL);
+	        auto x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, table);
+	        _ASSERT(x.digest == y.result);
+	        return y.result;
+        }
+        return ByteVec(32, 0);
 	}
 
 public:
-    hostSystem() {
-        if (!device.Connect("127.0.0.1", 2321)) {
+    hostSystem(bool v = true) {
+        verbose = v;
+        if (!device2.Connect("127.0.0.1", 2321)) {
             cerr << "Could not connect to the TPM device";
         }
-        tpm._SetDevice(device);
+        tpm._SetDevice(device2);
 
         // Power-cycle the simulator
-        device.PowerOff();
-        device.PowerOn();
+        device2.PowerOff();
+        device2.PowerOn();
 
         // And startup the TPM
         tpm.Startup(TPM_SU::CLEAR);
         primaryKey = gen_prim_key();
         aik = MakeChildSigningKey(primaryKey, true);
     }
+
+    ~hostSystem() {
+        tpm.FlushContext(aik);
+        tpm.FlushContext(primaryKey);
+        shutDownSimTPM();
+    }
+
     vector<pair<string, pair<int, ByteVec>>> requestEventLog() {
         return event_log;
     }
@@ -207,32 +250,6 @@ public:
 
 };
 
-void connectSimTPM(){
-    
-    if (!device2.Connect("127.0.0.1", 2321)) {
-        cerr << "Could not connect to the TPM device";
-    }
-    tpm._SetDevice(device2);
-
-    device2.PowerOff();
-    device2.PowerOn();
-    tpm.Startup(TPM_SU::CLEAR);
-}
-void shutDownSimTPM(){
-    tpm.Shutdown(TPM_SU::CLEAR);
-    device2.PowerOff();
-}
-
-void connectTPM() {
-    if (!device1.Connect()) {
-        cerr << "Could not connect to the TPM device";
-        return;
-    }
-
-    // Create a Tpm2 object "on top" of the device.
-    tpm._SetDevice(device1);
-}
-
 
 vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old, vector<pair<string, pair<int, ByteVec>>>& event_log, int pcrs) {
 	vector<TPM_HASH> pcrSim(pcrs);
@@ -244,70 +261,49 @@ vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old, vector<pair<string, 
     }
     return pcrSim;
 }
-void attestation_dir(string path) {
-	hostSystem system1;
-	auto pubKey = system1.requestPubAikKey();
-	auto pcrVals_old = system1.requestPcrVal();
-	ByteVec Nonce = Crypto::GetRand(16);
 
-	auto quote = system1.requestDirHashQuote(path, Nonce);
-	auto event_log = system1.requestEventLog();
+void attestation(bool verbose = true, string path="") {
+    bool hash_dir = path.size() != 0;
 
-	auto pcrVals_new = system1.requestPcrVal();
-
-	bool sigOk = pubKey.outPublic.ValidateQuote(pcrVals_new, Nonce, quote);
-    if (sigOk)
-        std::cout << "The quote was verified correctly" << endl;
-    _ASSERT(sigOk);
-    //check
-    auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old, event_log, 1);
-
-    TPMS_ATTEST qAttest = quote.quoted;
-    TPMS_QUOTE_INFO* qInfo = dynamic_cast<TPMS_QUOTE_INFO*>(&*qAttest.attested);
-    auto d_quote = qInfo->pcrDigest;
-
-    ByteVec pcrDigests;
-    for (auto i : pcrVals_hash_calc) {
-        pcrDigests.insert(pcrDigests.end(), i.digest.begin(), i.digest.end());
-    }
-    auto d_calc = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, pcrDigests).digest;
-    if (d_quote == d_calc) {
-        cout << "pcr values match" << endl;
-    }
-    else {
-        cout << "Attestation failed" << endl;
-    }
-
-}
-
-void attestation() {
-    hostSystem system1;
+    hostSystem system1(verbose);
     // get public ket
     auto pubKey = system1.requestPubAikKey();
 
     //initial pcr val
-    std::cout << "PCR Quoting" << endl;
+    if(verbose)
+        cout << "PCR Quoting" << endl;
+
     auto pcrVals_old = system1.requestPcrVal();
     
     //perform actions and get event logs
-    system1.performActions();
-    auto event_log = system1.requestEventLog();
+    if (!hash_dir) {
+        system1.performActions();
+    }
 
     // Do the quote.  Note that we provide a nonce.
     ByteVec Nonce = Crypto::GetRand(16);
 
     // get quote and new pcr vals
-    auto quote = system1.requestQuote(Nonce);
+    QuoteResponse quote;
+    if (hash_dir) {
+        quote = system1.requestDirHashQuote(path, Nonce);
+    }
+    else {
+        quote = system1.requestQuote(Nonce);
+    }
+
+    auto event_log = system1.requestEventLog();
     auto pcrVals_new = system1.requestPcrVal();
 
     //validate signature and nonce
     bool sigOk = pubKey.outPublic.ValidateQuote(pcrVals_new, Nonce, quote);
-    if (sigOk)
-        std::cout << "The quote was verified correctly" << endl;
+    if (sigOk && verbose)
+        cout << "The quote was verified correctly" << endl;
+
     _ASSERT(sigOk);
 
     // Regenerate pcr digest on client
-    auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old, event_log, 3);
+    auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old, event_log, hash_dir?1:3);
 
     TPMS_ATTEST qAttest = quote.quoted;
     TPMS_QUOTE_INFO* qInfo = dynamic_cast<TPMS_QUOTE_INFO*>(&*qAttest.attested);
@@ -318,21 +314,79 @@ void attestation() {
         pcrDigests.insert(pcrDigests.end(), i.digest.begin(), i.digest.end());
     }
     auto d_calc = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, pcrDigests).digest;
-    if (d_quote == d_calc) {
-        cout << "pcr values match" << endl;
+    if (verbose) {
+        if (d_quote == d_calc) {
+            cout << "pcr values match" << endl;
+        }
+        else {
+            cout << "Attestation failed" << endl;
+        }
     }
-    else {
-        cout << "Attestation failed" << endl;
+}
+
+void generate_files(string path, int size) {
+    fs::remove_all(path);
+    vector<string> folders = { "f1","f2","f1/f3","f1/f3/f4",path};
+    fs::create_directory(path);
+    for (int i = 0; i < folders.size()-1; i++) {
+        stringstream nf;
+        nf << path << "/" << folders[i];
+        folders[i] = nf.str();
+        fs::create_directory(folders[i]);
     }
+    int file_num = 0;
+    while (size > 0) {
+        stringstream nf;
+        nf << folders[rand() % folders.size()] << "/" << "file"<<file_num++;
+        ofstream new_file(nf.str());
+        int file_size = 0;
+        while (file_size == 0) {
+            file_size = rand() % size+1;
+        }
+        new_file << Crypto::GetRand(file_size);
+        size -= file_size;
+        //cout << file_size << endl;
+        new_file.close();
+    }
+}
+
+void benchmark() {
+    string path = "test_files";
+    const int num_iter = 200;
+    hostSystem system1(false);
+    cout << "starting" << endl;
+    vector<int> sizes = { 10,100,1000,10000,100000,1000000 };
+    ofstream  logs("logs.csv");
+    for (auto file_size : sizes) {
+        cout << "\nsize: " << file_size << endl;
+        cout << "generating files " << endl;
+        generate_files(path, file_size);
+        cout << "quoting " << endl;
+        int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+        for (int i = 0; i < num_iter; i++) {
+            if ((i * 100) % (5 * num_iter) == 0) {
+                cout << (i * 100) / num_iter << "%" << endl;
+            }
+            ByteVec Nonce = Crypto::GetRand(16);
+            system1.requestDirHashQuote(path, Nonce);
+        }
+        int total_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
+        cout << "Took " << total_time << " ms for " << num_iter << " quotes" << endl;
+        cout << "Avg " << total_time / num_iter << " ms" << endl;
+        logs << file_size << "," << total_time / num_iter << endl;
+    }
+    logs.close();
+    fs::remove_all(path);
 }
 
 int main(int argc, char* argv[])
 {
     //attestation();
 
-    cout << "enter directory path" << endl;
-    string x;
-    cin >> x;
-    attestation_dir(x);
+    //cout << "enter directory path" << endl;
+    //string x;
+    //cin >> x;
+    benchmark();
+    //attestation(true, x);
     return 0;
 }
