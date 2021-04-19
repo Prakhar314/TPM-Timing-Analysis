@@ -11,6 +11,20 @@
 #include <chrono>
 #include "stdafx.h"
 #include "Tpm2.h"
+#include <psapi.h>
+#include <tchar.h>
+#include <windows.h>
+#include <tlhelp32.h>
+#include <locale>
+#include <codecvt>
+#include <set>
+
+#ifndef UNICODE  
+typedef std::string String;
+#else
+typedef std::wstring String;
+#endif
+
 
 using namespace std;
 using namespace TpmCpp;
@@ -262,19 +276,10 @@ vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old, vector<pair<string, 
     return pcrSim;
 }
 
-void attestation(bool verbose = true, string path="") {
-    bool hash_dir = path.size() != 0;
-
-    hostSystem system1(verbose);
-    // get public ket
-    auto pubKey = system1.requestPubAikKey();
-
-    //initial pcr val
-    if(verbose)
+bool attest(bool hash_dir, string path, bool verbose, hostSystem &system1, TpmCpp::ReadPublicResponse &pubKey, TpmCpp::PCR_ReadResponse &pcrVals_old) {
+    if (verbose)
         cout << "PCR Quoting" << endl;
 
-    auto pcrVals_old = system1.requestPcrVal();
-    
     //perform actions and get event logs
     if (!hash_dir) {
         system1.performActions();
@@ -303,7 +308,7 @@ void attestation(bool verbose = true, string path="") {
     _ASSERT(sigOk);
 
     // Regenerate pcr digest on client
-    auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old, event_log, hash_dir?1:3);
+    auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old, event_log, hash_dir ? 1 : 3);
 
     TPMS_ATTEST qAttest = quote.quoted;
     TPMS_QUOTE_INFO* qInfo = dynamic_cast<TPMS_QUOTE_INFO*>(&*qAttest.attested);
@@ -314,8 +319,27 @@ void attestation(bool verbose = true, string path="") {
         pcrDigests.insert(pcrDigests.end(), i.digest.begin(), i.digest.end());
     }
     auto d_calc = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, pcrDigests).digest;
+
+    return (d_quote == d_calc);
+}
+
+void attestation(bool verbose = true, set<string> paths = {}) {
+    bool hash_dir = paths.size() != 0;
+
+    hostSystem system1(verbose);
+    // get public ket
+    auto pubKey = system1.requestPubAikKey();
+    auto pcrVals_old = system1.requestPcrVal();
+    bool attest_ok = true;
+    cout << "In\n";
+    for (string path : paths) {
+        attest_ok &= attest(hash_dir, path, verbose, system1, pubKey, pcrVals_old);   
+    }
+    if (!hash_dir) {
+        attest_ok &= attest(hash_dir, "", verbose, system1, pubKey, pcrVals_old);
+    }
     if (verbose) {
-        if (d_quote == d_calc) {
+        if (attest_ok) {
             cout << "pcr values match" << endl;
         }
         else {
@@ -323,6 +347,7 @@ void attestation(bool verbose = true, string path="") {
         }
     }
 }
+
 
 void generate_files(string path, int size) {
     fs::remove_all(path);
@@ -378,15 +403,164 @@ void benchmark() {
     logs.close();
     fs::remove_all(path);
 }
+string get_dir(string filename) {
+    string directory;
+    const size_t last_slash_idx = filename.rfind('\\');
+    if (std::string::npos != last_slash_idx)
+    {
+        directory = filename.substr(0, last_slash_idx);
+    }
+    return directory;
+}
+std::string convert_ws_to_s(const std::wstring& wstr)
+{
+    if (wstr.empty()) return std::string();
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
+    return strTo;
+}
+vector<DWORD> get_pid(String* exec_name) {
+    std::vector<DWORD> pids;
+    std::wstring targetProcessName = *exec_name;
+
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0); //all processes
+
+    PROCESSENTRY32W entry; //current process
+    entry.dwSize = sizeof entry;
+
+    if (!Process32FirstW(snap, &entry)) { //start with the first in snapshot
+        return{};
+    }
+
+    do {
+        if (std::wstring(entry.szExeFile) == targetProcessName) {
+            pids.emplace_back(entry.th32ProcessID); //name matches; add to list
+        }
+    } while (Process32NextW(snap, &entry)); //keep going until end of snapshot
+
+    return pids;
+}
+
+vector<wstring> get_path_vec(wstring path) {
+    vector<wstring> path_vec;
+    int l = 0;
+    int len = 0;
+    for (int i = 0; i < path.length(); i++) {
+        if (path[i] == '\\') {
+            path_vec.push_back(path.substr(l, len));
+            len = 0;
+            l = i + 1;
+        }
+        else {
+            len++;
+        }
+    }
+    if (len != 0) {
+        path_vec.push_back(path.substr(l, len));
+    }
+    return path_vec;
+}
+
+wstring get_path_from_path_vec(vector<wstring>& path_vec) {
+    wstring path = L"";
+    for (int i = 0; i < path_vec.size() - 1; i++) {
+        path.append(path_vec[i]);
+        path.append(L"\\");
+    }
+    path.append(path_vec.back());
+    return path;
+}
+wstring get_drive(wstring& vol_path) {
+    // wcout << vol_path << "\n";
+    wchar_t lpszFilePath[MAX_PATH + 1];
+    DWORD dw;
+
+    HANDLE hFile = CreateFileW(vol_path.c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (hFile == INVALID_HANDLE_VALUE)
+    {
+        printf("CreateFile: %u\n", GetLastError());
+        return L"";
+    }
+
+    dw = GetFinalPathNameByHandleW(hFile,
+        lpszFilePath, _countof(lpszFilePath) - 1, VOLUME_NAME_DOS);
+
+    if (dw == 0)
+    {
+        printf("GetFPNBYH: %u\n", GetLastError());
+        return L"";
+    }
+    else if (dw >= _countof(lpszFilePath))
+    {
+        printf("GetFPNBYH: output requires %u characters\n", dw);
+        return L"";
+    }
+    wstring drive_path(lpszFilePath);
+    return drive_path.substr(4, drive_path.length() - 4);
+}
+
+wstring get_path_drive_form(wstring path) {
+    vector<wstring> path_vec = get_path_vec(path);
+    wstring volume_path = L"\\\\?\\";
+    volume_path.append(path_vec[2]);
+    volume_path.append(L"\\");
+    vector<wstring> drive_path_vec = get_path_vec(get_drive(volume_path));
+    vector<wstring> new_path = drive_path_vec;
+    for (int i = 3; i < path_vec.size(); i++) {
+        new_path.push_back(path_vec[i]);
+    }
+    return get_path_from_path_vec(new_path);
+
+}
+
+string get_path(DWORD processID){
+	HANDLE hProcess;
+    TCHAR nameProc[MAX_PATH];
+    hProcess = OpenProcess( PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processID );
+
+    if (GetProcessImageFileName( hProcess, nameProc, sizeof(nameProc)/sizeof(*nameProc) )==0)
+        printf("error\n");
+    return get_dir(convert_ws_to_s(get_path_drive_form(wstring(nameProc))));
+}
+vector<string> get_path_from_exec_name(String exec_name) {
+    vector<DWORD> pids = get_pid(&exec_name);
+    vector<string> paths(pids.size());
+    for (int i = 0; i < paths.size(); i++) {
+        paths[i] = get_path(pids[i]);
+    }
+    return paths;
+
+}
+
+void attest_execs(vector<String> execs) {
+    set<string> paths;
+    for (String exec : execs) {
+        vector<string> path = get_path_from_exec_name(exec);
+        for (string x : path) {
+            paths.insert(x);
+        }
+    }
+    for (string x : paths) {
+        cout << x << "\n";
+    }
+    attestation(true, paths);
+}
 
 int main(int argc, char* argv[])
 {
     //attestation();
 
-    //cout << "enter directory path" << endl;
-    //string x;
-    //cin >> x;
-    benchmark();
-    //attestation(true, x);
+    // cout << "enter directory path" << endl;
+    // string x;
+    // cin >> x;
+    //benchmark();
+    // attestation(true, { x });
+    // vector<string> paths = get_path_from_exec_name(L"program.exe");
+    attest_execs({ L"program.exe" });
+    
+
     return 0;
 }
