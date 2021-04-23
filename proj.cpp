@@ -34,7 +34,7 @@ private:
     vector<pair<string, pair<int, ByteVec>>> event_log{};
     TPM_HANDLE primaryKey;
     TPM_HANDLE aik;
-    vector<TPMS_PCR_SELECTION> pcrsToQuote = { {TPM_ALG_ID::SHA256, 0}, {TPM_ALG_ID::SHA256, 1}, {TPM_ALG_ID::SHA256, 2} };
+    vector<TPMS_PCR_SELECTION> pcrsToQuote = TPMS_PCR_SELECTION::GetSelectionArray(TPM_ALG::SHA256,0);
 
     void update_pcrs_to_quote(vector<UINT32> pcrs){
     	vector<TPMS_PCR_SELECTION>().swap(pcrsToQuote);
@@ -43,6 +43,7 @@ private:
     	}
     }
     void update_event_log(string description, int pcr, ByteVec& event_data) {
+        cout << pcr << endl;
         event_log.push_back({ description, {pcr, event_data} });
     }
     void reset_event_log() {
@@ -55,21 +56,7 @@ private:
             cout << des << "\n";
         update_event_log(des, pcr, event_data);
     }
-    void action0() {
-        string des = "Performing action 1";
-        ByteVec event_data = { 1,2,3 };
-        perform_action(des, 0, event_data);
-    }
-    void action1() {
-        string des = "Performing action 2";
-        ByteVec event_data = { 2,3,4 };
-        perform_action(des, 1, event_data);
-    }
-    void action2() {
-        string des = "Performing action 3";
-        ByteVec event_data = { 3,4,5 };
-        perform_action(des, 2, event_data);
-    }
+
     TPM_HANDLE gen_prim_key() {
         TPMT_PUBLIC storagePrimaryTemplate(TPM_ALG_ID::SHA256,
             TPMA_OBJECT::decrypt | TPMA_OBJECT::restricted
@@ -78,7 +65,7 @@ private:
             ByteVec(),           // No policy
             TPMS_RSA_PARMS(Aes128Cfb, TPMS_NULL_ASYM_SCHEME(), 2048, 65537),
             TPM2B_PUBLIC_KEY_RSA());
-        return tpm.CreatePrimary(TPM_RH::OWNER, TPMS_SENSITIVE_CREATE(), storagePrimaryTemplate, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>())
+        return tpm.CreatePrimary(TPM_RH::_NULL, TPMS_SENSITIVE_CREATE(), storagePrimaryTemplate, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>())
             .handle;
     }
 
@@ -188,9 +175,12 @@ public:
         aik = MakeChildSigningKey(primaryKey, true);
     }
 
-    ~hostSystem() {
+    void free(){
         tpm.FlushContext(aik);
         tpm.FlushContext(primaryKey);
+    }
+    ~hostSystem() {
+        free();
     }
 
     vector<pair<string, pair<int, ByteVec>>> requestEventLog() {
@@ -203,18 +193,14 @@ public:
         return tpm.ReadPublic(aik);
     }
     TpmCpp::PCR_ReadResponse requestPcrVal() {
+        // cout << tpm.PCR_Read(TPMS_PCR_SELECTION::GetSelectionArray(TPM_ALG_ID::SHA1, 7)).pcrValues[0];
         return tpm.PCR_Read(pcrsToQuote);
-    }
-    void performActions() {
-        action0();
-        action1();
-        action2();
     }
     TpmCpp::QuoteResponse requestDirHashQuote(string path, ByteVec Nonce){
         ByteVec dir_hash = getDirectoryHash(path);
     	perform_action("Updating PCR with directory hash", 0, dir_hash);
 
-    	update_pcrs_to_quote({0});
+    	// update_pcrs_to_quote({0});
         return tpm.Quote(aik, Nonce, TPMS_NULL_SIG_SCHEME(), pcrsToQuote);
     }
 
@@ -224,7 +210,7 @@ public:
 vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old, vector<pair<string, pair<int, ByteVec>>>& event_log, int pcrs) {
 	vector<TPM_HASH> pcrSim(pcrs);
 	for (int i=0; i<pcrs; i++){
-    	pcrSim[i] = TPM_HASH(TPM_ALG_ID::SHA256, pcrVals_old.pcrValues[i]);
+    	pcrSim[i] = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, pcrVals_old.pcrValues[i]);
 	}
     for (auto x : event_log) {
         pcrSim[x.second.first].Event(x.second.second);
@@ -232,65 +218,62 @@ vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old, vector<pair<string, 
     return pcrSim;
 }
 
-void attestation(bool verbose = true, string path="") {
-    bool hash_dir = path.size() != 0;
+void attestation(string path,bool verbose = true) {
 
     hostSystem system1(verbose);
-    // get public ket
-    auto pubKey = system1.requestPubAikKey();
+    try{
+        // get public ket
+        auto pubKey = system1.requestPubAikKey();
 
-    //initial pcr val
-    if(verbose)
-        cout << "PCR Quoting" << endl;
+        //initial pcr val
+        if(verbose)
+            cout << "PCR Quoting" << endl;
 
-    auto pcrVals_old = system1.requestPcrVal();
-    
-    //perform actions and get event logs
-    if (!hash_dir) {
-        system1.performActions();
-    }
+        auto pcrVals_old = system1.requestPcrVal();
+        
+        // Do the quote.  Note that we provide a nonce.
+        ByteVec Nonce = Crypto::GetRand(16);
 
-    // Do the quote.  Note that we provide a nonce.
-    ByteVec Nonce = Crypto::GetRand(16);
-
-    // get quote and new pcr vals
-    QuoteResponse quote;
-    if (hash_dir) {
+        // get quote and new pcr vals
+        QuoteResponse quote;
         quote = system1.requestDirHashQuote(path, Nonce);
-    }
-    else {
-        quote = system1.requestQuote(Nonce);
-    }
 
-    auto event_log = system1.requestEventLog();
-    auto pcrVals_new = system1.requestPcrVal();
+        auto event_log = system1.requestEventLog();
+        auto pcrVals_new = system1.requestPcrVal();
 
-    //validate signature and nonce
-    bool sigOk = pubKey.outPublic.ValidateQuote(pcrVals_new, Nonce, quote);
-    if (sigOk && verbose)
-        cout << "The quote was verified correctly" << endl;
+        //validate signature and nonce
+        bool sigOk = pubKey.outPublic.ValidateQuote(pcrVals_new, Nonce, quote);
+        if (sigOk && verbose)
+            cout << "The quote was verified correctly" << endl;
 
-    _ASSERT(sigOk);
+        // _ASSERT(sigOk);
 
-    // Regenerate pcr digest on client
-    auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old, event_log, hash_dir?1:3);
+        // Regenerate pcr digest on client
+        auto pcrVals_hash_calc = get_pcr_vals(pcrVals_old, event_log, 1);
 
-    TPMS_ATTEST qAttest = quote.quoted;
-    TPMS_QUOTE_INFO* qInfo = dynamic_cast<TPMS_QUOTE_INFO*>(&*qAttest.attested);
-    auto d_quote = qInfo->pcrDigest;
+        TPMS_ATTEST qAttest = quote.quoted;
+        TPMS_QUOTE_INFO* qInfo = dynamic_cast<TPMS_QUOTE_INFO*>(&*qAttest.attested);
+        auto d_quote = qInfo->pcrDigest;
 
-    ByteVec pcrDigests;
-    for (auto i : pcrVals_hash_calc) {
-        pcrDigests.insert(pcrDigests.end(), i.digest.begin(), i.digest.end());
-    }
-    auto d_calc = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, pcrDigests).digest;
-    if (verbose) {
-        if (d_quote == d_calc) {
-            cout << "pcr values match" << endl;
+        ByteVec pcrDigests;
+        for (auto i : pcrVals_hash_calc) {
+            pcrDigests.insert(pcrDigests.end(), i.digest.begin(), i.digest.end());
         }
-        else {
-            cout << "Attestation failed" << endl;
+        auto d_calc = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, pcrDigests).digest;
+        if (verbose) {
+            if (d_quote == d_calc) {
+                cout << "pcr values match" << endl;
+            }
+            else {
+                cout << "Attestation failed" << endl;
+            }
         }
+    }
+    catch (const std::exception &exc)
+    {
+        // catch anything thrown within try block that derives from std::exception
+        std::cerr << exc.what() << endl;
+        system1.free();
     }
 }
 
@@ -353,10 +336,10 @@ int main(int argc, char* argv[])
 {
     //attestation();
 
-    //cout << "enter directory path" << endl;
-    //string x;
-    //cin >> x;
-    benchmark();
-    //attestation(true, x);
+    cout << "enter directory path" << endl;
+    string x;
+    cin >> x;
+    // benchmark();
+    attestation(x);
     return 0;
 }
