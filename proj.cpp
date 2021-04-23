@@ -65,7 +65,7 @@ private:
             ByteVec(),           // No policy
             TPMS_RSA_PARMS(Aes128Cfb, TPMS_NULL_ASYM_SCHEME(), 2048, 65537),
             TPM2B_PUBLIC_KEY_RSA());
-        return tpm.CreatePrimary(TPM_RH::_NULL, TPMS_SENSITIVE_CREATE(), storagePrimaryTemplate, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>())
+        return tpm.CreatePrimary(TPM_RH::OWNER, TPMS_SENSITIVE_CREATE(), storagePrimaryTemplate, ByteVec(), vector<TpmCpp::TPMS_PCR_SELECTION>())
             .handle;
     }
 
@@ -210,7 +210,7 @@ public:
 vector<TPM_HASH> get_pcr_vals(PCR_ReadResponse pcrVals_old, vector<pair<string, pair<int, ByteVec>>>& event_log, int pcrs) {
 	vector<TPM_HASH> pcrSim(pcrs);
 	for (int i=0; i<pcrs; i++){
-    	pcrSim[i] = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, pcrVals_old.pcrValues[i]);
+    	pcrSim[i] = TPM_HASH(TPM_ALG_ID::SHA256, pcrVals_old.pcrValues[i]);
 	}
     for (auto x : event_log) {
         pcrSim[x.second.first].Event(x.second.second);
