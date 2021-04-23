@@ -1,0 +1,92 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="Src\stdafx.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\Tpm2.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\TpmDevice.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\TpmTypes.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\TpmTypeExtensions.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\TpmPolicy.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\TpmHelpers.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\TpmAuthSessions.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\TpmStructure.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\Crypto.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+    <ClCompile Include="Src\Serialize.cpp">
+      <Filter>Sources</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\fdefs.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Tpm2.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\TpmDevice.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\TpmTypes.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\stdafx.h">
+      <Filter>Sources</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Tss.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\TpmMarshal.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\TpmPolicy.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\TpmHelpers.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\TpmStructure.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Crypto.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Serialize.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Helpers.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Headers">
+      <UniqueIdentifier>{b9b998ca-7587-4c87-8337-9eafea490a8b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Sources">
+      <UniqueIdentifier>{c3458cdc-7531-42d0-930c-56397f11ece7}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Src\TpmExtensions.cpp.snips">
+      <Filter>Sources</Filter>
+    </None>
+  </ItemGroup>
+</Project>
