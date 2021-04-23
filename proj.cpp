@@ -43,7 +43,6 @@ private:
     	}
     }
     void update_event_log(string description, int pcr, ByteVec& event_data) {
-        cout << pcr << endl;
         event_log.push_back({ description, {pcr, event_data} });
     }
     void reset_event_log() {
@@ -117,9 +116,9 @@ private:
 	    //get SHA256 finally
 	    auto y = tpm.SequenceComplete(hashHandle,bytes,TPM_RH_NULL);
 	    //get SHA256 hash using Crypto lib
-	    TPM_HASH x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, accum);
+	    // TPM_HASH x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, accum);
 	    // verify
-	    _ASSERT(x.digest == y.result);
+	    // _ASSERT(x.digest == y.result);
 	    return y.result;
 	}
 	ByteVec getDirectoryHash(string path) {
@@ -160,8 +159,8 @@ private:
 	        }
 	        buffer = ByteVec(ptr, ptr + table.size()%buf_size);
 	        auto y = tpm.SequenceComplete(hashHandle, buffer, TPM_RH_NULL);
-	        auto x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, table);
-	        _ASSERT(x.digest == y.result);
+	        // auto x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, table);
+	        // _ASSERT(x.digest == y.result);
 	        return y.result;
         }
         return ByteVec(32, 0);
@@ -301,19 +300,39 @@ void generate_files(string path, int size) {
         //cout << file_size << endl;
         new_file.close();
     }
+    cout << "generated " << file_num << " files"<< endl;
 }
 
+void generate_single_file(string path, int size) {
+    fs::remove_all(path);
+    fs::create_directory(path);
+    stringstream nf;
+    nf << path << "/" << "file";
+    ofstream new_file(nf.str());
+    while (size > 0) {
+        int file_size = min(size,1024);
+        new_file << Crypto::GetRand(file_size);
+        size -= file_size;
+    }
+    new_file.close();
+}
 void benchmark() {
     string path = "test_files";
     const int num_iter = 200;
     hostSystem system1(false);
     cout << "starting" << endl;
-    vector<int> sizes = { 10,100,1000,10000,100000,1000000 };
+    vector<int> sizes ;
+    for(int i = 10; i < 1e9+1;i*=100){
+        sizes.push_back(i);
+    }
     ofstream  logs("logs.csv");
     for (auto file_size : sizes) {
         cout << "\nsize: " << file_size << endl;
         cout << "generating files " << endl;
+
+        // generate_single_file(path, file_size);
         generate_files(path, file_size);
+        
         cout << "quoting " << endl;
         int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         for (int i = 0; i < num_iter; i++) {
@@ -336,10 +355,10 @@ int main(int argc, char* argv[])
 {
     //attestation();
 
-    cout << "enter directory path" << endl;
-    string x;
-    cin >> x;
-    // benchmark();
-    attestation(x);
+    // cout << "enter directory path" << endl;
+    // string x;
+    // cin >> x;
+    benchmark();
+    // attestation(x);
     return 0;
 }
