@@ -86,8 +86,9 @@ private:
     ByteVec getBlobHash(string filename) {
 	    //input as char vec
 	    ifstream input(filename, ios::in | ios::binary | ios::ate);
+        input.seekg(0, std::ios::end);
 	    int size = input.tellg();
-	    //cout << size << endl;
+        input.seekg(0, std::ios::beg);
 	    auto hashHandle = tpm.HashSequenceStart(ByteVec(), TPM_ALG_ID::SHA256);
 
 	    stringstream ss;
@@ -95,10 +96,11 @@ private:
 	    string prefix = ss.str();
 	    prefix.push_back('\0');
 	    //make byte vec from prefix char vec
-	    ByteVec bytes,accum;
+	    ByteVec bytes;
+        // ByteVec accum;
 	    bytes = ByteVec(prefix.begin(), prefix.end());
 	    // to verify with library
-	    accum.insert(accum.begin(), bytes.begin(), bytes.end());
+	    // accum.insert(accum.end(), bytes.begin(), bytes.end());
 
 	    vector<char> buffer(1024>size?size:1024, 0);
 	    while (!input.eof()) {
@@ -109,7 +111,7 @@ private:
 	        streamsize dataSize = input.gcount();
 	        bytes = ByteVec(buffer.begin(), buffer.begin()+dataSize);
 
-	        accum.insert(accum.begin(), bytes.begin(), bytes.end());
+	        // accum.insert(accum.end(), bytes.begin(), bytes.end());
 	    }
 
 	    input.close();
@@ -117,7 +119,7 @@ private:
 	    auto y = tpm.SequenceComplete(hashHandle,bytes,TPM_RH_NULL);
 	    //get SHA256 hash using Crypto lib
 	    // TPM_HASH x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, accum);
-	    // verify
+	    // // verify
 	    // _ASSERT(x.digest == y.result);
 	    return y.result;
 	}
@@ -125,34 +127,30 @@ private:
 	    ByteVec table;
 	    for (const auto& entry : fs::directory_iterator(path)) {
 	        string filename = entry.path().string();
+            ByteVec hash;
 	        if (fs::is_directory(entry)){
-	        	ByteVec hash = getDirectoryHash(entry.path().string());
-	        	table.insert(table.end(), hash.begin(), hash.end());
-	       		table.push_back('\0');
-	       		table.insert(table.end(), filename.begin(), filename.end());
-	        	table.push_back('\n');
+	        	hash = getDirectoryHash(entry.path().string());
 	        }
 	        else{
                 if (verbose) {
                     cout << "reading file " << filename << " ... ";
                 }
-		        ByteVec hash = getBlobHash(entry.path().string());
-		        //cout << hash.size()<<endl;
-		        table.insert(table.end(), hash.begin(), hash.end());
-		        table.push_back('\0');
-		        table.insert(table.end(), filename.begin(), filename.end());
-		        table.push_back('\n');
+		        hash = getBlobHash(entry.path().string());
                 if (verbose) {
                     cout << "done" << endl;
                 }
 	    	}
+            table.insert(table.end(), hash.begin(), hash.end());
+            table.push_back('\0');
+            table.insert(table.end(), filename.begin(), filename.end());
+            table.push_back('\n');
 	    }
         if (table.size() != 0) {
 	        auto hashHandle = tpm.HashSequenceStart(ByteVec(), TPM_ALG_ID::SHA256);
 	        ByteVec buffer;
 	        int buf_size = 1024;
 	        ByteVec::iterator ptr = table.begin();
-	        for (int i = 0; i < table.size() / buf_size; i++) {
+	        for (int i = 0; i < (int) (table.size() / buf_size); i++) {
 	            buffer = ByteVec(ptr, ptr + buf_size);
 	            tpm.SequenceUpdate(hashHandle, buffer);
 	            advance(ptr, buf_size);
@@ -197,6 +195,7 @@ public:
     }
     TpmCpp::QuoteResponse requestDirHashQuote(string path, ByteVec Nonce){
         ByteVec dir_hash = getDirectoryHash(path);
+        // cout << dir_hash << endl;
     	perform_action("Updating PCR with directory hash", 0, dir_hash);
 
     	// update_pcrs_to_quote({0});
@@ -272,6 +271,8 @@ void attestation(string path,bool verbose = true) {
     {
         // catch anything thrown within try block that derives from std::exception
         std::cerr << exc.what() << endl;
+    }
+    catch(...){
         system1.free();
     }
 }
@@ -280,7 +281,7 @@ void generate_files(string path, int size) {
     fs::remove_all(path);
     vector<string> folders = { "f1","f2","f1/f3","f1/f3/f4",path};
     fs::create_directory(path);
-    for (int i = 0; i < folders.size()-1; i++) {
+    for (int i = 0; i < (int)folders.size()-1; i++) {
         stringstream nf;
         nf << path << "/" << folders[i];
         folders[i] = nf.str();
@@ -318,11 +319,11 @@ void generate_single_file(string path, int size) {
 }
 void benchmark() {
     string path = "test_files";
-    const int num_iter = 200;
+    const int num_iter = 10;
     hostSystem system1(false);
     cout << "starting" << endl;
     vector<int> sizes ;
-    for(int i = 10; i < 1e9+1;i*=100){
+    for(int i = 10; i < 1e6;i+=50000){
         sizes.push_back(i);
     }
     ofstream  logs("logs.csv");
@@ -353,12 +354,11 @@ void benchmark() {
 
 int main(int argc, char* argv[])
 {
-    //attestation();
+    // benchmark();
 
-    // cout << "enter directory path" << endl;
-    // string x;
-    // cin >> x;
-    benchmark();
-    // attestation(x);
+    cout << "enter directory path" << endl;
+    string x;
+    cin >> x;
+    attestation(x);
     return 0;
 }
