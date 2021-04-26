@@ -18,6 +18,7 @@ static const TPMT_SYM_DEF_OBJECT Aes128Cfb{ TPM_ALG_ID::AES, 128, TPM_ALG_ID::CF
 Tpm2 tpm;
 TpmTbsDevice device;
 
+int total_time_tpm_only = 0;
 void connectTPM() {
     if (!device.Connect()) {
         cerr << "Could not connect to the TPM device";
@@ -89,7 +90,9 @@ private:
         input.seekg(0, std::ios::end);
 	    int size = input.tellg();
         input.seekg(0, std::ios::beg);
+        int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
 	    auto hashHandle = tpm.HashSequenceStart(ByteVec(), TPM_ALG_ID::SHA256);
+        total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
 
 	    stringstream ss;
 	    ss << "blob " << size;
@@ -104,8 +107,9 @@ private:
 
 	    vector<char> buffer(1024>size?size:1024, 0);
 	    while (!input.eof()) {
-
+            start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
 	        tpm.SequenceUpdate(hashHandle, bytes);
+            total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
 
 	        input.read(buffer.data(), buffer.size());
 	        streamsize dataSize = input.gcount();
@@ -116,7 +120,9 @@ private:
 
 	    input.close();
 	    //get SHA256 finally
+        start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
 	    auto y = tpm.SequenceComplete(hashHandle,bytes,TPM_RH_NULL);
+        total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
 	    //get SHA256 hash using Crypto lib
 	    // TPM_HASH x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, accum);
 	    // // verify
@@ -146,17 +152,23 @@ private:
             table.push_back('\n');
 	    }
         if (table.size() != 0) {
+            int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
 	        auto hashHandle = tpm.HashSequenceStart(ByteVec(), TPM_ALG_ID::SHA256);
+            total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
 	        ByteVec buffer;
 	        int buf_size = 1024;
 	        ByteVec::iterator ptr = table.begin();
 	        for (int i = 0; i < (int) (table.size() / buf_size); i++) {
 	            buffer = ByteVec(ptr, ptr + buf_size);
+                start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
 	            tpm.SequenceUpdate(hashHandle, buffer);
+                total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
 	            advance(ptr, buf_size);
 	        }
 	        buffer = ByteVec(ptr, ptr + table.size()%buf_size);
+            start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
 	        auto y = tpm.SequenceComplete(hashHandle, buffer, TPM_RH_NULL);
+            total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
 	        // auto x = TPM_HASH::FromHashOfData(TPM_ALG_ID::SHA256, table);
 	        // _ASSERT(x.digest == y.result);
 	        return y.result;
@@ -167,14 +179,18 @@ private:
 public:
     hostSystem(bool v = true) {
         verbose = v;
+        int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         connectTPM();
         primaryKey = gen_prim_key();
         aik = MakeChildSigningKey(primaryKey, true);
+        total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
     }
 
     void free(){
+        // int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         tpm.FlushContext(aik);
         tpm.FlushContext(primaryKey);
+        // total_time_h_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
     }
     ~hostSystem() {
         free();
@@ -221,13 +237,17 @@ void attestation(string path,bool verbose = true) {
     hostSystem system1(verbose);
     try{
         // get public ket
+        int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         auto pubKey = system1.requestPubAikKey();
+        total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
 
         //initial pcr val
         if(verbose)
             cout << "PCR Quoting" << endl;
 
+        start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         auto pcrVals_old = system1.requestPcrVal();
+        total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
         
         // Do the quote.  Note that we provide a nonce.
         ByteVec Nonce = Crypto::GetRand(16);
@@ -235,12 +255,14 @@ void attestation(string path,bool verbose = true) {
         // get quote and new pcr vals
         QuoteResponse quote;
         quote = system1.requestDirHashQuote(path, Nonce);
+        start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
 
         auto event_log = system1.requestEventLog();
         auto pcrVals_new = system1.requestPcrVal();
 
         //validate signature and nonce
         bool sigOk = pubKey.outPublic.ValidateQuote(pcrVals_new, Nonce, quote);
+        total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
         if (sigOk && verbose)
             cout << "The quote was verified correctly" << endl;
 
@@ -354,11 +376,16 @@ void benchmark() {
 
 int main(int argc, char* argv[])
 {
+    total_time_tpm_only = 0;
+    int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
     // benchmark();
 
-    cout << "enter directory path" << endl;
-    string x;
-    cin >> x;
-    attestation(x);
+    // cout << "enter directory path" << endl;
+    // string x;
+    // cin >> x;
+    attestation("test_files");
+    cout << "TPM Took " << total_time_tpm_only << endl;
+    int total_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
+    cout << "Total " <<  total_time << endl;
     return 0;
 }
