@@ -378,12 +378,12 @@ int main(int argc, char* argv[])
 {
     total_time_tpm_only = 0;
     int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
-    // benchmark();
+    benchmark();
 
     // cout << "enter directory path" << endl;
     // string x;
     // cin >> x;
-    attestation("test_files");
+//    attestation("test_files");
     cout << "TPM Took " << total_time_tpm_only << endl;
     int total_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
     cout << "Total " <<  total_time << endl;
