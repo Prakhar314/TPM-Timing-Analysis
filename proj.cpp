@@ -212,7 +212,9 @@ public:
     TpmCpp::QuoteResponse requestDirHashQuote(string path, ByteVec Nonce){
         ByteVec dir_hash = getDirectoryHash(path);
         // cout << dir_hash << endl;
-    	perform_action("Updating PCR with directory hash", 0, dir_hash);
+    	int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+        perform_action("Updating PCR with directory hash", 0, dir_hash);
+        total_time_tpm_only += chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() - start_time;
 
     	// update_pcrs_to_quote({0});
         return tpm.Quote(aik, Nonce, TPMS_NULL_SIG_SCHEME(), pcrsToQuote);
@@ -318,7 +320,10 @@ void generate_files(string path, int size) {
         while (file_size == 0) {
             file_size = rand() % size+1;
         }
-        new_file << Crypto::GetRand(file_size);
+        ByteVec bv = Crypto::GetRand(file_size);
+        vector<char> cv;
+        cv.insert(cv.end(),bv.begin(),bv.end());
+        new_file.write(&cv[0],cv.size());
         size -= file_size;
         //cout << file_size << endl;
         new_file.close();
@@ -379,7 +384,6 @@ int main(int argc, char* argv[])
     total_time_tpm_only = 0;
     int start_time = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
     benchmark();
-
     // cout << "enter directory path" << endl;
     // string x;
     // cin >> x;
