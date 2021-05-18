@@ -33,23 +33,22 @@ int main(){
     connectTPM();
 
     int start_time = getTime();
-    auto x = TPMS_PCR_SELECTION::GetSelectionArray(TPM_ALG_ID::SHA256,0);
-    for(int i = 0 ; i < 20;i++){
-        tpm.PCR_Read(x).pcrValues;
+    for(int i = 0 ; i < 200;i++){
+        tpm.PCR_Read(TPMS_PCR_SELECTION::GetSelectionArray(TPM_ALG_ID::SHA256,rand()%20)).pcrValues;
     }
     int total_time = (getTime() - start_time);
-    cout << total_time/20.0 << ",";
+    cout << total_time/200.0 << "\t";
 
     vector<int> tests = {16,512,1024};
     for(auto b:tests){
         total_time = 0;
-        for(int i = 0 ; i < 20;i++){
+        for(int i = 0 ; i < 200;i++){
             ByteVec bytes = Crypto::GetRand(b);
             start_time = getTime();
             tpm.Hash(bytes,TPM_ALG_ID::SHA256,TPM_RH_NULL).outHash;
             total_time += (getTime() - start_time);
         }
-        cout << total_time/20.0 << ",";
+        cout << total_time/200.0 << "\t";
     }
     cout << endl;
     return 0;
