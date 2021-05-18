@@ -40,7 +40,8 @@ int main(){
     cout << total_time/200.0 << "\t";
 
     vector<int> tests = {16,512,1024};
-    for(auto b:tests){
+    for(int tn = 0;tn<(int)tests.size();tn++){
+        auto b = tests[tn];
         total_time = 0;
         for(int i = 0 ; i < 200;i++){
             ByteVec bytes = Crypto::GetRand(b);
@@ -48,7 +49,10 @@ int main(){
             tpm.Hash(bytes,TPM_ALG_ID::SHA256,TPM_RH_NULL).outHash;
             total_time += (getTime() - start_time);
         }
-        cout << total_time/200.0 << "\t";
+        cout << total_time/200.0;
+        if(tn!=(int)tests.size()-1){
+            cout<<"\t";
+        }
     }
     cout << endl;
     return 0;
