@@ -32,28 +32,22 @@ int getTime(){
 int main(){
     connectTPM();
 
-    int start_time = getTime();
-    for(int i = 0 ; i < 200;i++){
-        tpm.PCR_Read(TPMS_PCR_SELECTION::GetSelectionArray(TPM_ALG_ID::SHA256,rand()%20)).pcrValues;
-    }
-    int total_time = (getTime() - start_time);
-    cout << total_time/200.0 << "\t";
-
+    int times[] = {0,0,0,0};
     vector<int> tests = {16,512,1024};
-    for(int tn = 0;tn<(int)tests.size();tn++){
-        auto b = tests[tn];
-        total_time = 0;
-        for(int i = 0 ; i < 200;i++){
+    int iterations = 1000;
+    for(int i = 0 ; i < iterations;i++){
+        auto pcr_to_read = TPMS_PCR_SELECTION::GetSelectionArray(TPM_ALG_ID::SHA256,rand()%20);
+        int start_time = getTime();
+        tpm.PCR_Read(pcr_to_read).pcrValues;
+        times[0] += (getTime() - start_time);
+        for(int tn = 0;tn<(int)tests.size();tn++){
+            auto b = tests[tn];
             ByteVec bytes = Crypto::GetRand(b);
             start_time = getTime();
             tpm.Hash(bytes,TPM_ALG_ID::SHA256,TPM_RH_NULL).outHash;
-            total_time += (getTime() - start_time);
-        }
-        cout << total_time/200.0;
-        if(tn!=(int)tests.size()-1){
-            cout<<"\t";
+            times[tn+1] += (getTime() - start_time);
         }
     }
-    cout << endl;
+    cout << 1.0*times[0]/iterations << "\t" << 1.0*times[1]/iterations << "\t" << 1.0*times[2]/iterations << "\t" << 1.0*times[3]/iterations << endl;
     return 0;
 }
