@@ -1,7 +1,7 @@
 ## Instructions
 1. run `make` in TSS.CPP.
 2. run `make`.
-
+3. `sudo cpulimit -l 50 -i ./bg.sh`
 
 ## Benchmarks
 
